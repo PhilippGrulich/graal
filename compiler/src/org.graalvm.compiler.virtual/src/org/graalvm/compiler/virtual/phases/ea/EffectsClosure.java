@@ -515,31 +515,31 @@ public abstract class EffectsClosure<BlockT extends EffectsBlockState<BlockT>> e
         return (result == null || result instanceof VirtualObjectNode) ? node : result;
     }
 
-    protected static final class LoopKillCache {
+    public static final class LoopKillCache {
         private int visits;
         private LocationIdentity firstLocation;
         private EconomicSet<LocationIdentity> killedLocations;
         private boolean killsAll;
 
-        protected LoopKillCache(int visits) {
+        public LoopKillCache(int visits) {
             this.visits = visits;
         }
 
-        protected void visited() {
+        public void visited() {
             visits++;
         }
 
-        protected int visits() {
+        public int visits() {
             return visits;
         }
 
-        protected void setKillsAll() {
+        public void setKillsAll() {
             killsAll = true;
             firstLocation = null;
             killedLocations = null;
         }
 
-        protected boolean containsLocation(LocationIdentity locationIdentity) {
+        public boolean containsLocation(LocationIdentity locationIdentity) {
             if (killsAll) {
                 return true;
             }
@@ -552,7 +552,7 @@ public abstract class EffectsClosure<BlockT extends EffectsBlockState<BlockT>> e
             return true;
         }
 
-        protected void rememberLoopKilledLocation(LocationIdentity locationIdentity) {
+        public void rememberLoopKilledLocation(LocationIdentity locationIdentity) {
             if (killsAll) {
                 return;
             }
@@ -566,7 +566,7 @@ public abstract class EffectsClosure<BlockT extends EffectsBlockState<BlockT>> e
             }
         }
 
-        protected boolean loopKillsLocations() {
+        public boolean loopKillsLocations() {
             if (killsAll) {
                 return true;
             }
