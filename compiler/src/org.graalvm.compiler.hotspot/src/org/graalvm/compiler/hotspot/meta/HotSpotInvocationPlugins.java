@@ -104,10 +104,10 @@ final class HotSpotInvocationPlugins extends InvocationPlugins {
 
     @Override
     public boolean canBeIntrinsified(ResolvedJavaType declaringClass) {
-        if (declaringClass instanceof HotSpotResolvedJavaType) {
-            HotSpotResolvedJavaType type = (HotSpotResolvedJavaType) declaringClass;
-            return intrinsificationPredicate.apply(type.mirror());
-        }
-        return false;
+        // if (declaringClass instanceof HotSpotResolvedJavaType) {
+        // HotSpotResolvedJavaType type = (HotSpotResolvedJavaType) declaringClass;
+        // return intrinsificationPredicate.apply(type.mirror());
+        // }
+        return true;
     }
 }
