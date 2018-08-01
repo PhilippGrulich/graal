@@ -50,7 +50,7 @@ import jdk.vm.ci.meta.JavaConstant;
  * The {@code ArrayLength} instruction gets the length of an array.
  */
 @NodeInfo(cycles = CYCLES_2, size = SIZE_1)
-public final class ArrayLengthNode extends FixedWithNextNode implements Canonicalizable.Unary<ValueNode>, Lowerable, Virtualizable {
+public class ArrayLengthNode extends FixedWithNextNode implements Canonicalizable.Unary<ValueNode>, Lowerable, Virtualizable {
 
     public static final NodeClass<ArrayLengthNode> TYPE = NodeClass.create(ArrayLengthNode.class);
     @Input ValueNode array;

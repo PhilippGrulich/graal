@@ -50,7 +50,7 @@ import jdk.vm.ci.meta.ResolvedJavaType;
  * The {@code StoreIndexedNode} represents a write to an array element.
  */
 @NodeInfo(cycles = CYCLES_8, size = SIZE_8)
-public final class StoreIndexedNode extends AccessIndexedNode implements StateSplit, Lowerable, Virtualizable {
+public class StoreIndexedNode extends AccessIndexedNode implements StateSplit, Lowerable, Virtualizable {
 
     public static final NodeClass<StoreIndexedNode> TYPE = NodeClass.create(StoreIndexedNode.class);
 
@@ -84,7 +84,11 @@ public final class StoreIndexedNode extends AccessIndexedNode implements StateSp
     }
 
     public StoreIndexedNode(ValueNode array, ValueNode index, GuardingNode boundsCheck, GuardingNode storeCheck, JavaKind elementKind, ValueNode value) {
-        super(TYPE, StampFactory.forVoid(), array, index, boundsCheck, elementKind);
+        this(TYPE, array, index, boundsCheck, storeCheck, elementKind, value);
+    }
+
+    public StoreIndexedNode(NodeClass<? extends StoreIndexedNode> type, ValueNode array, ValueNode index, GuardingNode boundsCheck, GuardingNode storeCheck, JavaKind elementKind, ValueNode value) {
+        super(type, StampFactory.forVoid(), array, index, boundsCheck, elementKind);
         this.storeCheck = storeCheck;
         this.value = value;
     }
