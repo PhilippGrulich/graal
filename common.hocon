@@ -1,19 +1,19 @@
 # overlay version
-overlay = efcf529122547c2c67bbabebee695d61ddd5ac18
+overlay = e2d86bcb06922e4d9017e675376ed7515902392c
 
 # oraclejdk* are released OracleJDK binaries
 # labsjdk* are JDKs based on OracleJDK binaries
-# openjdk* are JDKs based on OpenJDK binaries
+# openjdk8 JDKs on Linux are built by Oracle Labs
+# openjdk8 JDKs on macOS are based on AdoptOpenJDK binaries
 jdks: {
-  labsjdk8 : {name : labsjdk, version : "8u171-jvmci-0.43", platformspecific: true}
-  labsjdk8Debug : {name : labsjdk, version : "8u171-jvmci-0.43-fastdebug", platformspecific: true}
-  oraclejdk9 : {name : oraclejdk, version : "9.0.4+11", platformspecific: true}
-  oraclejdk10 : {name : oraclejdk, version : "10+46", platformspecific: true}
+  labsjdk8:      {name : labsjdk,   version : "8u172-jvmci-0.48", platformspecific: true}
+  openjdk8:      {name : openjdk,   version : "8u172-jvmci-0.48", platformspecific: true}
+  labsjdk8Debug: {name : labsjdk,   version : "8u172-jvmci-0.48-fastdebug", platformspecific: true}
+  oraclejdk11:   {name : oraclejdk, version : "11+25", platformspecific: true}
 
   # Snapshot of http://hg.openjdk.java.net/jdk/jdk
-  oraclejdkSNAPSHOT : {name : labsjdk, version : "20180522-073957", platformspecific: true}
+  oraclejdkSNAPSHOT : {name : labsjdk, version : "20180808-073750", platformspecific: true}
 
-  openjdk8 : {name : openjdk, version : "8u171-jvmci-0.43", platformspecific: true}
 }
 
 # This must always point to HEAD in the master branch but can be used to point
@@ -24,26 +24,21 @@ mx : {
   }
 }
 
-labsjdk8 :      { downloads : { JAVA_HOME : ${jdks.labsjdk8},      EXTRA_JAVA_HOMES : { pathlist :[ ${jdks.oraclejdk9} ]} }}
-labsjdk8Debug : { downloads : { JAVA_HOME : ${jdks.labsjdk8Debug}, EXTRA_JAVA_HOMES : { pathlist :[ ${jdks.oraclejdk9} ]} }}
+labsjdk8 :      { downloads : { JAVA_HOME : ${jdks.labsjdk8},      EXTRA_JAVA_HOMES : { pathlist :[ ${jdks.oraclejdk11} ]} }}
+labsjdk8Debug : { downloads : { JAVA_HOME : ${jdks.labsjdk8Debug}, EXTRA_JAVA_HOMES : { pathlist :[ ${jdks.oraclejdk11} ]} }}
 
 openjdk8 :        { downloads : { JAVA_HOME : ${jdks.openjdk8} }}
 
-oraclejdk9 :      { downloads : { JAVA_HOME : ${jdks.oraclejdk9},        EXTRA_JAVA_HOMES : { pathlist :[ ${jdks.labsjdk8} ]} }}
-oraclejdk10 :     { downloads : { JAVA_HOME : ${jdks.oraclejdk10},       EXTRA_JAVA_HOMES : { pathlist :[ ${jdks.labsjdk8}, ${jdks.oraclejdk9} ]} }}
-oraclejdk11 :     { downloads : { JAVA_HOME : ${jdks.oraclejdkSNAPSHOT}, EXTRA_JAVA_HOMES : { pathlist :[ ${jdks.labsjdk8}, ${jdks.oraclejdk10} ]} }}
+oraclejdk11 :     { downloads : { JAVA_HOME : ${jdks.oraclejdk11} }}
 
 common : ${mx} {
   timelimit : "30:00"
   catch_files : [
     "Graal diagnostic output saved in (?P<filename>.+\.zip)"
   ]
-  environment : {
-    TRUFFLE_LLVM_VERSION : "cb47708b29c7f33dbf822cb6a5e75c07af877817"
-    TRUFFLE_JS_VERSION : "58692da68706b64f85744ab70fdb4520069836e1"
-    TRUFFLE_RUBY_VERSION : "0c60fae09de738cdaabff0393e27f5225034b468"
-    TRUFFLE_PYTHON_VERSION : "c30c0c8c737ba2f5ba59eb4c2eb701778d98c753"
-    TRUFFLE_R_VERSION : "9316f50732af45c54dbbe515fc9ef997dc672e1b"
+  packages : {
+    "pip:astroid" : "==1.1.0"
+    "pip:pylint" : "==1.1.0"
   }
 }
 
@@ -51,8 +46,7 @@ linux : ${common} {
   packages : {
     git : ">=1.8.3"
     mercurial : ">=2.2"
-    "pip:astroid" : "==1.1.0"
-    "pip:pylint" : "==1.1.0"
+    "apache/ant": ">=1.9.4"
   }
 }
 
@@ -60,19 +54,17 @@ solaris : ${common} {
   packages : {
     git : ">=1.8.3"
     mercurial : ">=2.2"
-    "pip:astroid" : "==1.1.0"
-    "pip:pylint" : "==1.1.0"
+    "apache/ant": ">=1.9.4"
   }
 }
 
 darwin : ${common} {
-  packages : {
-    "pip:astroid" : "==1.1.0"
-    "pip:pylint" : "==1.1.0"
-  }
   environment : {
     PATH : "/usr/local/bin:$PATH"
   }
+}
+
+windows : ${common} {
 }
 
 linux-amd64 : ${linux} {
@@ -81,6 +73,10 @@ linux-amd64 : ${linux} {
 
 darwin-amd64 : ${darwin} {
   capabilities : [darwin_next, amd64]
+}
+
+windows-amd64 : ${windows} {
+  capabilities : [windows, amd64]
 }
 
 solaris-sparcv9 : ${solaris} {
@@ -111,7 +107,7 @@ jdt : {
 }
 
 # for cases where a maven package is not easily accessible
-maven-download-unix : ${labsjdk8} {
+maven-download-unix : {
   downloads : {
     MAVEN_HOME: {name: maven, version: "3.3.9", platformspecific: false}
   }
@@ -132,22 +128,6 @@ darwin-deploy : ${darwin} ${maven-download-unix} {
   environment : {
     PATH : "$MAVEN_HOME/bin:$JAVA_HOME/bin:/usr/local/bin:$PATH"
   }
-}
-
-deploy-binaries : ${labsjdk8} {
-  targets : [post-merge, deploy]
-  run : [
-    ["mx", "--strict-compliance", "build"]
-    ["mx", "deploy-binary", "--all-suites", "--skip-existing", ${binaries-repository}]
-  ]
-}
-
-maven-deploy-dry-run : ${labsjdk8} {
-  targets : [gate]
-  run : [
-    ["mx", "--strict-compliance", "build"]
-    ["mx", "maven-deploy", "--validate", "full", "--licenses", "GPLv2-CPE,UPL", "--dry-run", "ossrh", "https://this-is-only-a-test"]
-  ]
 }
 
 svm-common: ${mx} {
@@ -175,19 +155,28 @@ svm-common-linux: ${svm-common} ${linux-amd64} {
   timelimit: "55:00"
 }
 
-svm-capabilities-fast : {
-  capabilities : [linux, amd64, fast]
+# fast is necessary here as slow machines don't handle image builds well
+svm-capabilities: [linux, amd64, fast]
+svm-capabilities-base : {
+  capabilities : ${svm-capabilities}
 }
 
 svm-capabilities-avx2 : {
-  capabilities : [linux, amd64, avx2]
+  capabilities : ${svm-capabilities} [avx2]
 }
 
 svm-capabilities-manycores : {
-  capabilities : [linux, amd64, manycores, fast]
+  capabilities : ${svm-capabilities} [manycores]
 }
 
 svm-common-darwin: ${svm-common} ${darwin-amd64} {
+  timelimit: "45:00"
+}
+
+svm-common-windows: ${svm-common} ${windows-amd64} {
+  packages : {
+    msvc : "==10.0"
+  }
   timelimit: "45:00"
 }
 
@@ -196,4 +185,3 @@ svm-common-sulong: {
     llvm: "==3.8"
   }
 }
-

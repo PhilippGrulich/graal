@@ -37,7 +37,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
 import org.graalvm.nativeimage.c.function.CEntryPoint;
-import org.graalvm.nativeimage.c.function.CEntryPointContext;
 import org.graalvm.nativeimage.c.struct.SizeOf;
 import org.graalvm.nativeimage.c.type.CCharPointer;
 import org.graalvm.nativeimage.c.type.CIntPointer;
@@ -47,7 +46,6 @@ import org.graalvm.word.Pointer;
 import org.graalvm.word.WordFactory;
 
 import com.oracle.svm.core.MonitorSupport;
-import com.oracle.svm.core.SubstrateUtil;
 import com.oracle.svm.core.annotate.Uninterruptible;
 import com.oracle.svm.core.c.function.CEntryPointActions;
 import com.oracle.svm.core.c.function.CEntryPointOptions;
@@ -274,7 +272,7 @@ final class JNIInvocationInterface {
                 if (args.isNonNull() && args.getVersion() != JNIVersion.JNI_VERSION_1_1()) {
                     group = JNIObjectHandles.getObject(args.getGroup());
                     if (args.getName().isNonNull()) {
-                        ByteBuffer buffer = SubstrateUtil.wrapAsByteBuffer(args.getName(), Integer.MAX_VALUE);
+                        ByteBuffer buffer = CTypeConversion.asByteBuffer(args.getName(), Integer.MAX_VALUE);
                         try {
                             name = Utf8.utf8ToString(true, buffer);
                         } catch (CharConversionException ignore) {

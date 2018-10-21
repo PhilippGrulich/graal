@@ -32,13 +32,14 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.Collections;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 
 import org.graalvm.compiler.api.replacements.SnippetReflectionProvider;
 import org.graalvm.compiler.api.runtime.GraalRuntime;
 import org.graalvm.compiler.options.OptionValues;
+import org.graalvm.compiler.truffle.common.TruffleCompiler;
 import org.graalvm.compiler.truffle.common.TruffleCompilerOptions;
+import org.graalvm.compiler.truffle.runtime.BackgroundCompileQueue;
 import org.graalvm.compiler.truffle.runtime.CancellableCompileTask;
 import org.graalvm.compiler.truffle.runtime.GraalTruffleRuntime;
 import org.graalvm.compiler.truffle.runtime.LoopNodeFactory;
@@ -52,6 +53,7 @@ import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.SubstrateUtil;
 import com.oracle.svm.core.deopt.Deoptimizer;
 import com.oracle.svm.core.deopt.SubstrateSpeculationLog;
+import com.oracle.svm.core.jdk.RuntimeSupport;
 import com.oracle.svm.core.log.Log;
 import com.oracle.svm.core.option.RuntimeOptionValues;
 import com.oracle.svm.core.stack.SubstrateStackIntrospection;
@@ -68,6 +70,9 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
 import jdk.vm.ci.meta.SpeculationLog;
 
 public final class SubstrateTruffleRuntime extends GraalTruffleRuntime {
+
+    private static final int DEBUG_TEAR_DOWN_TIMEOUT = 2_000;
+    private static final int PRODUCTION_TEAR_DOWN_TIMEOUT = 10_000;
 
     private BackgroundCompileQueue compileQueue;
     private CallMethods hostedCallMethods;
@@ -94,6 +99,7 @@ public final class SubstrateTruffleRuntime extends GraalTruffleRuntime {
     public void initializeAtRuntime() {
         if (SubstrateOptions.MultiThreaded.getValue()) {
             compileQueue = new BackgroundCompileQueue();
+            RuntimeSupport.getRuntimeSupport().addTearDownHook(this::tearDown);
         }
         if (TruffleCompilerOptions.TraceTruffleTransferToInterpreter.getValue(RuntimeOptionValues.singleton())) {
             if (!SubstrateOptions.IncludeNodeSourcePositions.getValue()) {
@@ -116,11 +122,21 @@ public final class SubstrateTruffleRuntime extends GraalTruffleRuntime {
                         GraalSupport.getLIRSuites(),
                         GraalSupport.getRuntimeConfig().getBackendForNormalMethod(), snippetReflection);
         truffleCompiler = compiler;
+
         return compiler;
     }
 
     public ResolvedJavaMethod[] getAnyFrameMethod() {
         return callMethods.anyFrameMethod;
+    }
+
+    @Override
+    protected String getCompilerConfigurationName() {
+        TruffleCompiler compiler = getTruffleCompiler();
+        if (compiler != null) {
+            return compiler.getCompilerConfigurationName();
+        }
+        return null;
     }
 
     @Platforms(Platform.HOSTED_ONLY.class)
@@ -131,6 +147,15 @@ public final class SubstrateTruffleRuntime extends GraalTruffleRuntime {
         return new SubstrateTruffleCompiler(this, graalFeature.getHostedProviders().getGraphBuilderPlugins(), GraalSupport.getSuites(),
                         GraalSupport.getLIRSuites(),
                         GraalSupport.getRuntimeConfig().getBackendForNormalMethod(), snippetReflectionProvider);
+    }
+
+    private void tearDown() {
+        /*
+         * Runaway compilations should fail during testing, but should not cause crashes in
+         * production.
+         */
+        long timeout = SubstrateUtil.assertionsEnabled() ? DEBUG_TEAR_DOWN_TIMEOUT : PRODUCTION_TEAR_DOWN_TIMEOUT;
+        getCompileQueue().shutdownAndAwaitTermination(timeout);
     }
 
     @Override
@@ -196,9 +221,20 @@ public final class SubstrateTruffleRuntime extends GraalTruffleRuntime {
     }
 
     @Override
-    public CancellableCompileTask submitForCompilation(OptimizedCallTarget optimizedCallTarget) {
+    public CancellableCompileTask submitForCompilation(OptimizedCallTarget optimizedCallTarget, boolean lastTierCompilation) {
+        if (SubstrateUtil.HOSTED) {
+            /*
+             * Truffle code can run during image generation. But for now it is the easiest to not
+             * JIT compile during image generation. Support would be difficult and require major
+             * refactorings in the Truffle runtime: we already run with the SubstrateTruffleRuntime
+             * and not with the HotSpotTruffleRuntime, so we do not have the correct configuration
+             * for Graal, we do not have the correct subclasses for the OptimizedCallTarget, ...
+             */
+            return null;
+        }
+
         if (SubstrateOptions.MultiThreaded.getValue()) {
-            return super.submitForCompilation(optimizedCallTarget);
+            return super.submitForCompilation(optimizedCallTarget, lastTierCompilation);
         }
 
         try {
@@ -218,9 +254,9 @@ public final class SubstrateTruffleRuntime extends GraalTruffleRuntime {
     }
 
     @Override
-    public void finishCompilation(OptimizedCallTarget optimizedCallTarget, Future<?> future, boolean mayBeAsynchronous) {
+    public void finishCompilation(OptimizedCallTarget optimizedCallTarget, CancellableCompileTask task, boolean mayBeAsynchronous) {
         if (SubstrateOptions.MultiThreaded.getValue()) {
-            super.finishCompilation(optimizedCallTarget, future, mayBeAsynchronous);
+            super.finishCompilation(optimizedCallTarget, task, mayBeAsynchronous);
         }
     }
 

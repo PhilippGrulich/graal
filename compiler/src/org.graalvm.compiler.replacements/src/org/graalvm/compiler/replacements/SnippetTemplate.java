@@ -49,6 +49,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
+import jdk.vm.ci.meta.ConstantReflectionProvider;
 import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Equivalence;
@@ -515,7 +516,7 @@ public class SnippetTemplate {
         }
 
         @Override
-        public ValueNode findLength(ArrayLengthProvider.FindLengthMode mode) {
+        public ValueNode findLength(FindLengthMode mode, ConstantReflectionProvider constantReflection) {
             return ConstantNode.forInt(varargs.length);
         }
     }
@@ -722,7 +723,7 @@ public class SnippetTemplate {
 
         // Copy snippet graph, replacing constant parameters with given arguments
         final StructuredGraph snippetCopy = new StructuredGraph.Builder(options, debug).name(snippetGraph.name).method(snippetGraph.method()).trackNodeSourcePosition(
-                        snippetGraph.trackNodeSourcePosition()).build();
+                        snippetGraph.trackNodeSourcePosition()).setIsSubstitution(true).build();
         assert !GraalOptions.TrackNodeSourcePosition.getValue(options) || snippetCopy.trackNodeSourcePosition();
         if (providers.getCodeCache() != null && providers.getCodeCache().shouldDebugNonSafepoints()) {
             snippetCopy.setTrackNodeSourcePosition();

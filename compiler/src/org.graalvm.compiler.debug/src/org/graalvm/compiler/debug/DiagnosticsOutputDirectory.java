@@ -84,7 +84,10 @@ public class DiagnosticsOutputDirectory {
                 }
             }
         }
-        return CLOSED.equals(path) ? null : path;
+        if (CLOSED.equals(path)) {
+            TTY.println("Warning: Graal diagnostic directory already closed");
+        }
+        return path;
     }
 
     /**
@@ -137,7 +140,7 @@ public class DiagnosticsOutputDirectory {
                                 String name = dir.relativize(file).toString();
                                 ZipEntry ze = new ZipEntry(name);
                                 zos.putNextEntry(ze);
-                                zos.write(Files.readAllBytes(file));
+                                Files.copy(file, zos);
                                 zos.closeEntry();
                             }
                             toDelete.add(file);

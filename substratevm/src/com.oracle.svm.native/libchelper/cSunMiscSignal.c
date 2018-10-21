@@ -5,8 +5,8 @@
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
  * published by the Free Software Foundation. Oracle designates this
- # particular file as subject to the "Classpath" exception as provided
- # by Oracle in the LICENSE file that accompanied this code.
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -63,6 +63,7 @@
 int cSunMiscSignal_open();
 int cSunMiscSignal_close();
 int cSunMiscSignal_await();
+int cSunMiscSignal_post();
 int cSunMiscSignal_signalRangeCheck(int const index);
 long cSunMiscSignal_getCount(int const signal);
 long cSunMiscSignal_decrementCount(int const signal);
@@ -71,7 +72,6 @@ sig_t cSunMiscSignal_countingHandlerFunctionPointer();
 /* Private functions. */
 static void cSunMiscSignal_countingHandler(int const signal);
 static int haveSemaphore();
-static int cSunMiscSignal_post();
 static long cSunMiscSignal_atomicIncrement(volatile long* const address);
 static long cSunMiscSignal_atomicDecrementToZero(volatile long* const address);
 static int cSunMiscSignal_atomicCompareAndSwap_int(volatile int* const ptr, int const oldval, int const newval);
@@ -101,6 +101,12 @@ int cSunMiscSignal_open() {
 	/* Claim ownership. */
 	int const previousState = cSunMiscSignal_atomicCompareAndSwap_int(&cSunMiscSignal_state, cSunMiscSignal_CLOSED, cSunMiscSignal_OPEN);
 	if (previousState == cSunMiscSignal_CLOSED) {
+		/* Reset all signal counts */
+	    int i = 0;
+	    while (i < NSIG) {
+		  cSunMiscSignal_table[i] = 0;
+		  i += 1;
+	    }
 		/* Get a process-specific name for the semaphore. */
 		char cSunMiscSignal_semaphoreName[NAME_MAX];
 		const char* const nameFormat = "/cSunMiscSignal-%d";
@@ -136,6 +142,7 @@ int cSunMiscSignal_close() {
 		}
 		cSunMiscSignal_semaphore = NULL;
 	}
+
 	cSunMiscSignal_state = cSunMiscSignal_CLOSED;
 	return 0;
 }
@@ -149,6 +156,16 @@ int cSunMiscSignal_await() {
 			return 0;
 		}
 		return semWaitResult;
+	}
+	errno = EINVAL;
+	return -1;
+}
+
+/* Notify a thread waiting on the semaphore. */
+int cSunMiscSignal_post() {
+	if (haveSemaphore()) {
+		int const semPostResult = sem_post(cSunMiscSignal_semaphore);
+		return semPostResult;
 	}
 	errno = EINVAL;
 	return -1;
@@ -210,16 +227,6 @@ static long cSunMiscSignal_atomicIncrement(volatile long* const address) {
 /* Do I have a valid semaphore? */
 static int haveSemaphore() {
 	return ((cSunMiscSignal_semaphore != NULL) && (cSunMiscSignal_semaphore != SEM_FAILED));
-}
-
-/* Notify a thread waiting on the semaphore. */
-static int cSunMiscSignal_post() {
-	if (haveSemaphore()) {
-		int const semPostResult = sem_post(cSunMiscSignal_semaphore);
-		return semPostResult;
-	}
-	errno = EINVAL;
-	return -1;
 }
 
 /* Atomic subtract down to zero.  Returns the previous value. */

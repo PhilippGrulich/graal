@@ -43,7 +43,6 @@ import org.graalvm.compiler.lir.framemap.FrameMapBuilder;
 import org.graalvm.compiler.lir.gen.LIRGenerationResult;
 import org.graalvm.compiler.lir.gen.LIRGeneratorTool;
 import org.graalvm.compiler.nodes.StructuredGraph;
-import org.graalvm.compiler.nodes.GraphSpeculationLog;
 import org.graalvm.compiler.nodes.spi.NodeLIRBuilderTool;
 import org.graalvm.compiler.phases.tiers.SuitesProvider;
 import org.graalvm.compiler.phases.tiers.TargetProvider;
@@ -193,6 +192,9 @@ public abstract class Backend implements TargetProvider, ValueKindFactory<LIRKin
      * @param context a custom debug context to use for the code installation
      * @return a reference to the compiled and ready-to-run installed code
      * @throws BailoutException if the code installation failed
+     * @throws IllegalArgumentException if {@code installedCode != null} and this platform does not
+     *             {@linkplain CodeCacheProvider#installCode support} a predefined
+     *             {@link InstalledCode} object
      */
     @SuppressWarnings("try")
     public InstalledCode createInstalledCode(DebugContext debug, ResolvedJavaMethod method, CompilationRequest compilationRequest, CompilationResult compilationResult,
@@ -210,16 +212,16 @@ public abstract class Backend implements TargetProvider, ValueKindFactory<LIRKin
 
             InstalledCode installedCode;
             try {
-                preCodeInstallationTasks(tasks, compilationResult, predefinedInstalledCode);
+                preCodeInstallationTasks(tasks, compilationResult);
                 CompiledCode compiledCode = createCompiledCode(method, compilationRequest, compilationResult);
-                installedCode = getProviders().getCodeCache().installCode(method, compiledCode, predefinedInstalledCode, GraphSpeculationLog.unwrap(speculationLog), isDefault);
+                installedCode = getProviders().getCodeCache().installCode(method, compiledCode, predefinedInstalledCode, speculationLog, isDefault);
                 assert predefinedInstalledCode == null || installedCode == predefinedInstalledCode;
             } catch (Throwable t) {
                 failCodeInstallationTasks(tasks, t);
                 throw t;
             }
 
-            postCodeInstallationTasks(tasks, installedCode);
+            postCodeInstallationTasks(tasks, compilationResult, installedCode);
 
             return installedCode;
         } catch (Throwable e) {
@@ -233,16 +235,16 @@ public abstract class Backend implements TargetProvider, ValueKindFactory<LIRKin
         }
     }
 
-    private static void preCodeInstallationTasks(CodeInstallationTask[] tasks, CompilationResult compilationResult, InstalledCode predefinedInstalledCode) {
+    private static void preCodeInstallationTasks(CodeInstallationTask[] tasks, CompilationResult compilationResult) {
         for (CodeInstallationTask task : tasks) {
-            task.preProcess(compilationResult, predefinedInstalledCode);
+            task.preProcess(compilationResult);
         }
     }
 
-    private static void postCodeInstallationTasks(CodeInstallationTask[] tasks, InstalledCode installedCode) {
+    private static void postCodeInstallationTasks(CodeInstallationTask[] tasks, CompilationResult compilationResult, InstalledCode installedCode) {
         try {
             for (CodeInstallationTask task : tasks) {
-                task.postProcess(installedCode);
+                task.postProcess(compilationResult, installedCode);
             }
         } catch (Throwable t) {
             installedCode.invalidate();
@@ -311,19 +313,18 @@ public abstract class Backend implements TargetProvider, ValueKindFactory<LIRKin
          * Task to run before code installation.
          *
          * @param compilationResult the code about to be installed
-         * @param predefinedInstalledCode a pre-allocated {@link InstalledCode} object that will be
-         *            used as a reference to the installed code. May be {@code null}.
          *
          */
-        public void preProcess(CompilationResult compilationResult, InstalledCode predefinedInstalledCode) {
+        public void preProcess(CompilationResult compilationResult) {
         }
 
         /**
          * Task to run after the code is installed.
          *
+         * @param compilationResult the code about to be installed
          * @param installedCode a reference to the installed code
          */
-        public void postProcess(InstalledCode installedCode) {
+        public void postProcess(CompilationResult compilationResult, InstalledCode installedCode) {
         }
 
         /**

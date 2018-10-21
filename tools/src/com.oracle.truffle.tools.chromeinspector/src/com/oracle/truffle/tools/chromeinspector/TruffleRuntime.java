@@ -31,6 +31,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
 
 import com.oracle.truffle.tools.utils.json.JSONArray;
 import com.oracle.truffle.tools.utils.json.JSONObject;
@@ -39,7 +41,9 @@ import com.oracle.truffle.api.InstrumentInfo;
 import com.oracle.truffle.api.debug.DebugException;
 import com.oracle.truffle.api.debug.DebugValue;
 import com.oracle.truffle.api.debug.DebugScope;
+import com.oracle.truffle.api.nodes.LanguageInfo;
 import com.oracle.truffle.api.source.Source;
+import com.oracle.truffle.api.source.Source.LiteralBuilder;
 import com.oracle.truffle.api.source.SourceSection;
 
 import com.oracle.truffle.tools.chromeinspector.TruffleExecutionContext.NoSuspendedThreadException;
@@ -49,11 +53,15 @@ import com.oracle.truffle.tools.chromeinspector.events.Event;
 import com.oracle.truffle.tools.chromeinspector.instrument.Enabler;
 import com.oracle.truffle.tools.chromeinspector.instrument.OutputConsumerInstrument;
 import com.oracle.truffle.tools.chromeinspector.server.CommandProcessException;
+import com.oracle.truffle.tools.chromeinspector.types.CallArgument;
 import com.oracle.truffle.tools.chromeinspector.types.ExceptionDetails;
 import com.oracle.truffle.tools.chromeinspector.types.InternalPropertyDescriptor;
 import com.oracle.truffle.tools.chromeinspector.types.Location;
 import com.oracle.truffle.tools.chromeinspector.types.PropertyDescriptor;
 import com.oracle.truffle.tools.chromeinspector.types.RemoteObject;
+import java.util.Iterator;
+
+import org.graalvm.collections.Pair;
 
 public final class TruffleRuntime extends RuntimeDomain {
 
@@ -95,10 +103,11 @@ public final class TruffleRuntime extends RuntimeDomain {
         String language = context.getLastLanguage();
         String mimeType = context.getLastMimeType();
         String name = (sourceURL != null) ? sourceURL : "eval";
-        Source.Builder<RuntimeException, RuntimeException, RuntimeException> builder = Source.newBuilder(expression).name(name).mimeType(mimeType);
-        if (language != null) {
-            builder.language(language);
+        if (language == null) {
+            // legacy support where language may be null
+            language = Source.findLanguage(mimeType);
         }
+        LiteralBuilder builder = Source.newBuilder(language, expression, name).name(name).mimeType(mimeType);
         if (sourceURL != null && !sourceURL.isEmpty()) {
             URI ownUri = null;
             try {
@@ -126,10 +135,17 @@ public final class TruffleRuntime extends RuntimeDomain {
                 parsed = context.executeInSuspendThread(new SuspendThreadExecutable<Boolean>() {
                     @Override
                     public Boolean executeCommand() throws CommandProcessException {
+                        LanguageInfo languageInfo = context.getSuspendedInfo().getSuspendedEvent().getTopStackFrame().getLanguage();
+                        if (languageInfo == null || !languageInfo.isInteractive()) {
+                            exceptionText[0] = TruffleDebugger.getEvalNonInteractiveMessage();
+                            return false;
+                        }
                         try {
                             context.getEnv().parse(source);
                             return true;
-                        } catch (Exception ex) {
+                        } catch (ThreadDeath td) {
+                            throw td;
+                        } catch (Throwable ex) {
                             // Didn't manage to parse this
                             exceptionText[0] = ex.getLocalizedMessage();
                             return false;
@@ -155,9 +171,7 @@ public final class TruffleRuntime extends RuntimeDomain {
             ret.put("scriptId", Integer.toString(id));
         }
         if (exceptionText[0] != null) {
-            JSONObject exceptionDetails = new JSONObject();
-            exceptionDetails.put("text", exceptionText[0]);
-            ret.put("exceptionDetails", exceptionDetails);
+            fillExceptionDetails(ret, exceptionText[0]);
         }
         return new Params(ret);
     }
@@ -175,14 +189,29 @@ public final class TruffleRuntime extends RuntimeDomain {
                 context.executeInSuspendThread(new SuspendThreadExecutable<Void>() {
                     @Override
                     public Void executeCommand() throws CommandProcessException {
+                        suspendedInfo.lastEvaluatedValue.set(null);
+                        LanguageInfo languageInfo = context.getSuspendedInfo().getSuspendedEvent().getTopStackFrame().getLanguage();
+                        if (languageInfo == null || !languageInfo.isInteractive()) {
+                            fillExceptionDetails(json, TruffleDebugger.getEvalNonInteractiveMessage());
+                            return null;
+                        }
                         JSONObject result;
-                        DebugValue value = suspendedInfo.getSuspendedEvent().getTopStackFrame().eval(expression);
+                        DebugValue value = null;
+                        if (suspendedInfo.getCallFrames().length > 0) {
+                            value = TruffleDebugger.getVarValue(expression, suspendedInfo.getCallFrames()[0]);
+                        }
+                        if (value == null) {
+                            value = suspendedInfo.getSuspendedEvent().getTopStackFrame().eval(expression);
+                        }
                         if (returnByValue) {
                             result = RemoteObject.createJSONResultValue(value, context.getErr());
                         } else {
                             RemoteObject ro = new RemoteObject(value, context.getErr());
                             context.getRemoteObjectsHandler().register(ro);
                             result = ro.toJSON();
+                            if (!ro.isReplicable()) {
+                                suspendedInfo.lastEvaluatedValue.set(Pair.create(value, ro.getRawValue()));
+                            }
                         }
                         json.put("result", result);
                         return null;
@@ -195,14 +224,10 @@ public final class TruffleRuntime extends RuntimeDomain {
                     }
                 });
             } catch (NoSuspendedThreadException ex) {
-                JSONObject exceptionDetails = new JSONObject();
-                exceptionDetails.put("text", ex.getLocalizedMessage());
-                json.put("exceptionDetails", exceptionDetails);
+                fillExceptionDetails(json, ex.getLocalizedMessage());
             }
         } else {
-            JSONObject exceptionDetails = new JSONObject();
-            exceptionDetails.put("text", "<Not suspended>");
-            json.put("exceptionDetails", exceptionDetails);
+            fillExceptionDetails(json, "<Not suspended>");
         }
         return new Params(json);
     }
@@ -267,31 +292,68 @@ public final class TruffleRuntime extends RuntimeDomain {
         final String functionLocation = "[[FunctionLocation]]";
         JSONArray result = new JSONArray();
         JSONArray internals = new JSONArray();
-        HashSet<String> storedPropertyNames = new HashSet<>(properties.size());
+        boolean hasArray = !arrayElements.isEmpty();
+        HashSet<String> storedPropertyNames = hasArray ? new HashSet<>(properties.size()) : null;
+        DebugException exception = null;
+        String nameExc = null;
         // Test functionLocation for executable values only
         boolean hasFunctionLocation = value == null || !value.canExecute();
-        for (DebugValue v : properties) {
-            if (v.isReadable()) {
-                if (!v.isInternal()) {
-                    result.put(createPropertyJSON(v));
-                    storedPropertyNames.add(v.getName());
-                } else {
-                    internals.put(createPropertyJSON(v));
-                }
-                if (!hasFunctionLocation && functionLocation.equals(v.getName())) {
-                    hasFunctionLocation = true;
+        Iterator<DebugValue> propertiesIterator = properties.iterator();
+        try {
+            while (propertiesIterator.hasNext()) {
+                DebugValue v = null;
+                try {
+                    v = propertiesIterator.next();
+                    if (v.isReadable()) {
+                        if (!v.isInternal()) {
+                            result.put(createPropertyJSON(v));
+                            if (storedPropertyNames != null) {
+                                storedPropertyNames.add(v.getName());
+                            }
+                        } else {
+                            internals.put(createPropertyJSON(v));
+                        }
+                        if (!hasFunctionLocation && functionLocation.equals(v.getName())) {
+                            hasFunctionLocation = true;
+                        }
+                    }
+                } catch (DebugException ex) {
+                    if (exception == null) {
+                        exception = ex;
+                        nameExc = (v != null) ? v.getName() : "<unknown>";
+                    }
                 }
             }
-        }
-        int i = 0;
-        for (DebugValue v : arrayElements) {
-            String name = Integer.toString(i++);
-            if (v.isReadable() && !storedPropertyNames.contains(name)) {
-                result.put(createPropertyJSON(v, name));
+            int i = 0;
+            for (DebugValue v : arrayElements) {
+                String name = Integer.toString(i++);
+                try {
+                    if (v.isReadable() && !storedPropertyNames.contains(name)) {
+                        result.put(createPropertyJSON(v, name));
+                    }
+                } catch (DebugException ex) {
+                    if (exception == null) {
+                        exception = ex;
+                        nameExc = name;
+                    }
+                }
+            }
+        } catch (DebugException ex) {
+            // From property iterators, etc.
+            if (exception == null) {
+                exception = ex;
             }
         }
         if (!hasFunctionLocation) {
-            SourceSection sourceLocation = value.getSourceLocation();
+            SourceSection sourceLocation = null;
+            try {
+                sourceLocation = value.getSourceLocation();
+            } catch (DebugException ex) {
+                // From property iterators, etc.
+                if (exception == null) {
+                    exception = ex;
+                }
+            }
             if (sourceLocation != null) {
                 int scriptId = slh.getScriptId(sourceLocation.getSource());
                 if (scriptId >= 0) {
@@ -310,6 +372,16 @@ public final class TruffleRuntime extends RuntimeDomain {
         }
         json.put("result", result);
         json.put("internalProperties", internals);
+        if (exception != null) {
+            fillExceptionDetails(json, exception);
+            if (exception.isInternalError()) {
+                PrintWriter err = context.getErr();
+                if (err != null) {
+                    err.println("Exception while retrieving variable " + nameExc);
+                    exception.printStackTrace(err);
+                }
+            }
+        }
     }
 
     @Override
@@ -330,6 +402,15 @@ public final class TruffleRuntime extends RuntimeDomain {
                             JSONObject result;
                             if (functionDeclaration.startsWith("function getCompletions(")) {
                                 result = createCodecompletion(value);
+                            } else if (functionDeclaration.equals("function(a, b) { this[a] = b; }")) {
+                                // Set of an array element, or object property
+                                if (arguments.length() < 2) {
+                                    throw new CommandProcessException("Insufficient number of arguments: " + arguments.length() + ", expecting: 2");
+                                }
+                                Object property = ((JSONObject) arguments.get(0)).get("value");
+                                CallArgument newValue = CallArgument.get((JSONObject) arguments.get(1));
+                                setPropertyValue(value, property, newValue, suspendedInfo.lastEvaluatedValue.getAndSet(null));
+                                result = new JSONObject();
                             } else {
                                 String code = "(" + functionDeclaration + ")(" + value.getName() + ")";
                                 DebugValue eval = suspendedInfo.getSuspendedEvent().getTopStackFrame().eval(code);
@@ -359,18 +440,55 @@ public final class TruffleRuntime extends RuntimeDomain {
         return new Params(json);
     }
 
+    private void setPropertyValue(DebugValue object, Object property, CallArgument newValue, Pair<DebugValue, Object> evaluatedValue) throws CommandProcessException {
+        DebugValue propValue;
+        Number index = null;
+        if (object.isArray()) {
+            if (property instanceof Number) {
+                index = (Number) property;
+            } else {
+                try {
+                    index = Integer.parseUnsignedInt(property.toString());
+                } catch (NumberFormatException ex) {
+                    // It's a String property
+                }
+            }
+        }
+        if (index != null) {
+            List<DebugValue> array = object.getArray();
+            int i = index.intValue();
+            if (i < 0 || array.size() <= i) {
+                throw new CommandProcessException("Bad array index: " + i + " array size = " + array.size());
+            }
+            propValue = array.get(i);
+        } else {
+            propValue = object.getProperty(property.toString());
+            if (propValue == null) {
+                throw new CommandProcessException("No property named " + property.toString() + " was found.");
+            }
+        }
+        if (evaluatedValue != null && Objects.equals(evaluatedValue.getRight(), newValue.getPrimitiveValue())) {
+            propValue.set(evaluatedValue.getLeft());
+        } else {
+            context.setValue(propValue, newValue);
+        }
+    }
+
     private JSONObject createCodecompletion(DebugValue value) {
+        JSONObject result = new JSONObject();
         Collection<DebugValue> properties = null;
         try {
             properties = value.getProperties();
-        } catch (Exception ex) {
-            PrintWriter err = context.getErr();
-            if (err != null) {
-                err.println("getProperties(" + value.getName() + ") has caused: " + ex);
-                ex.printStackTrace(err);
+        } catch (DebugException ex) {
+            fillExceptionDetails(result, ex);
+            if (ex.isInternalError()) {
+                PrintWriter err = context.getErr();
+                if (err != null) {
+                    err.println("getProperties(" + value.getName() + ") has caused: " + ex);
+                    ex.printStackTrace(err);
+                }
             }
         }
-        JSONObject result = new JSONObject();
         JSONArray valueArray = new JSONArray();
         JSONObject itemsObj = new JSONObject();
         JSONArray items = new JSONArray();
@@ -392,6 +510,11 @@ public final class TruffleRuntime extends RuntimeDomain {
 
     static void fillExceptionDetails(JSONObject obj, DebugException ex, TruffleExecutionContext context) {
         ExceptionDetails exceptionDetails = new ExceptionDetails(ex);
+        obj.put("exceptionDetails", exceptionDetails.createJSON(context));
+    }
+
+    private void fillExceptionDetails(JSONObject obj, String errorMessage) {
+        ExceptionDetails exceptionDetails = new ExceptionDetails(errorMessage);
         obj.put("exceptionDetails", exceptionDetails.createJSON(context));
     }
 

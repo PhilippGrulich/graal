@@ -26,7 +26,6 @@ package com.oracle.svm.reflect.hosted;
 
 //Checkstyle: allow reflection
 
-import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
@@ -194,8 +193,6 @@ public class ReflectionDataBuilder implements RuntimeReflectionSupport {
     private static Constructor<?> nullaryConstructor(Object constructors, Set<?> reflectionMethods) {
         for (Constructor<?> constructor : (Constructor<?>[]) constructors) {
             if (constructor.getParameterCount() == 0 && reflectionMethods.contains(constructor)) {
-                /* Ensure the annotations data structures are initialized. */
-                constructor.getDeclaredAnnotations();
                 return constructor;
             }
         }
@@ -235,10 +232,6 @@ public class ReflectionDataBuilder implements RuntimeReflectionSupport {
         List<Object> result = new ArrayList<>();
         for (Object element : (Object[]) elements) {
             if (filter.contains(element)) {
-                if (element instanceof AccessibleObject) {
-                    /* Ensure the annotations data structures are initialized. */
-                    ((AccessibleObject) element).getDeclaredAnnotations();
-                }
                 result.add(element);
             }
         }

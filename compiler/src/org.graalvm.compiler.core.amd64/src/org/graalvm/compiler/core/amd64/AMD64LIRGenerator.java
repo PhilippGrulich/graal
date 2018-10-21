@@ -29,10 +29,10 @@ import static jdk.vm.ci.code.ValueUtil.asRegister;
 import static jdk.vm.ci.code.ValueUtil.isAllocatableValue;
 import static jdk.vm.ci.code.ValueUtil.isRegister;
 import static org.graalvm.compiler.asm.amd64.AMD64Assembler.AMD64BinaryArithmetic.CMP;
-import static org.graalvm.compiler.asm.amd64.AMD64Assembler.OperandSize.DWORD;
-import static org.graalvm.compiler.asm.amd64.AMD64Assembler.OperandSize.PD;
-import static org.graalvm.compiler.asm.amd64.AMD64Assembler.OperandSize.PS;
-import static org.graalvm.compiler.asm.amd64.AMD64Assembler.OperandSize.QWORD;
+import static org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandSize.DWORD;
+import static org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandSize.PD;
+import static org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandSize.PS;
+import static org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandSize.QWORD;
 import static org.graalvm.compiler.core.common.GraalOptions.GeneratePIC;
 import static org.graalvm.compiler.lir.LIRValueUtil.asConstant;
 import static org.graalvm.compiler.lir.LIRValueUtil.asConstantValue;
@@ -45,7 +45,7 @@ import org.graalvm.compiler.asm.amd64.AMD64Assembler.AMD64BinaryArithmetic;
 import org.graalvm.compiler.asm.amd64.AMD64Assembler.AMD64MIOp;
 import org.graalvm.compiler.asm.amd64.AMD64Assembler.AMD64RMOp;
 import org.graalvm.compiler.asm.amd64.AMD64Assembler.ConditionFlag;
-import org.graalvm.compiler.asm.amd64.AMD64Assembler.OperandSize;
+import org.graalvm.compiler.asm.amd64.AMD64BaseAssembler.OperandSize;
 import org.graalvm.compiler.asm.amd64.AMD64Assembler.SSEOp;
 import org.graalvm.compiler.core.common.LIRKind;
 import org.graalvm.compiler.core.common.NumUtil;
@@ -66,6 +66,7 @@ import org.graalvm.compiler.lir.amd64.AMD64AddressValue;
 import org.graalvm.compiler.lir.amd64.AMD64ArithmeticLIRGeneratorTool;
 import org.graalvm.compiler.lir.amd64.AMD64ArrayCompareToOp;
 import org.graalvm.compiler.lir.amd64.AMD64ArrayEqualsOp;
+import org.graalvm.compiler.lir.amd64.AMD64ArrayIndexOfOp;
 import org.graalvm.compiler.lir.amd64.AMD64Binary;
 import org.graalvm.compiler.lir.amd64.AMD64BinaryConsumer;
 import org.graalvm.compiler.lir.amd64.AMD64ByteSwapOp;
@@ -87,6 +88,8 @@ import org.graalvm.compiler.lir.amd64.AMD64Move.MembarOp;
 import org.graalvm.compiler.lir.amd64.AMD64Move.StackLeaOp;
 import org.graalvm.compiler.lir.amd64.AMD64PauseOp;
 import org.graalvm.compiler.lir.amd64.AMD64StringIndexOfOp;
+import org.graalvm.compiler.lir.amd64.AMD64StringLatin1InflateOp;
+import org.graalvm.compiler.lir.amd64.AMD64StringUTF16CompressOp;
 import org.graalvm.compiler.lir.amd64.AMD64ZapRegistersOp;
 import org.graalvm.compiler.lir.amd64.AMD64ZapStackOp;
 import org.graalvm.compiler.lir.gen.LIRGenerationResult;
@@ -566,6 +569,46 @@ public abstract class AMD64LIRGenerator extends LIRGenerator {
     }
 
     @Override
+    public Variable emitArrayIndexOf(JavaKind kind, Value arrayPointer, Value arrayLength, Value charValue) {
+        Variable result = newVariable(LIRKind.value(AMD64Kind.DWORD));
+        append(new AMD64ArrayIndexOfOp(kind, getVMPageSize(), this, result, asAllocatable(arrayPointer), asAllocatable(arrayLength), asAllocatable(charValue)));
+        return result;
+    }
+
+    @Override
+    public void emitStringLatin1Inflate(Value src, Value dst, Value len) {
+        RegisterValue rsrc = AMD64.rsi.asValue(src.getValueKind());
+        RegisterValue rdst = AMD64.rdi.asValue(dst.getValueKind());
+        RegisterValue rlen = AMD64.rdx.asValue(len.getValueKind());
+
+        emitMove(rsrc, src);
+        emitMove(rdst, dst);
+        emitMove(rlen, len);
+
+        append(new AMD64StringLatin1InflateOp(this, rsrc, rdst, rlen));
+    }
+
+    @Override
+    public Variable emitStringUTF16Compress(Value src, Value dst, Value len) {
+        RegisterValue rsrc = AMD64.rsi.asValue(src.getValueKind());
+        RegisterValue rdst = AMD64.rdi.asValue(dst.getValueKind());
+        RegisterValue rlen = AMD64.rdx.asValue(len.getValueKind());
+
+        emitMove(rsrc, src);
+        emitMove(rdst, dst);
+        emitMove(rlen, len);
+
+        LIRKind reskind = LIRKind.value(AMD64Kind.DWORD);
+        RegisterValue rres = AMD64.rax.asValue(reskind);
+
+        append(new AMD64StringUTF16CompressOp(this, rres, rsrc, rdst, rlen));
+
+        Variable res = newVariable(reskind);
+        emitMove(res, rres);
+        return res;
+    }
+
+    @Override
     public void emitReturn(JavaKind kind, Value input) {
         AllocatableValue operand = Value.ILLEGAL;
         if (input != null) {
@@ -606,7 +649,8 @@ public abstract class AMD64LIRGenerator extends LIRGenerator {
         return new AMD64ZapStackOp(zappedStack, zapValues);
     }
 
-    public void emitLFence() {
+    @Override
+    public void emitSpeculationFence() {
         append(new AMD64LFenceOp());
     }
 }

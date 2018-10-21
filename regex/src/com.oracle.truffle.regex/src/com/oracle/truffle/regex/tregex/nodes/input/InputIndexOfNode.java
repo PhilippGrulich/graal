@@ -28,7 +28,6 @@ import com.oracle.truffle.api.dsl.Cached;
 import com.oracle.truffle.api.dsl.Specialization;
 import com.oracle.truffle.api.interop.TruffleObject;
 import com.oracle.truffle.api.nodes.Node;
-import com.oracle.truffle.regex.tregex.util.Boundaries;
 
 public abstract class InputIndexOfNode extends Node {
 
@@ -36,11 +35,12 @@ public abstract class InputIndexOfNode extends Node {
         return InputIndexOfNodeGen.create();
     }
 
-    public abstract int execute(Object input, char c, int fromIndex, int maxIndex);
+    public abstract int execute(Object input, int fromIndex, int maxIndex, char[] chars);
 
     @Specialization
-    public int indexOf(String input, char c, int fromIndex, int maxIndex) {
-        int index = Boundaries.stringIndexOf(input, c, fromIndex);
+    public int indexOf(String input, int fromIndex, int maxIndex, char[] chars) {
+        assert chars.length == 1;
+        int index = input.indexOf(chars[0], fromIndex);
         if (index >= maxIndex) {
             return -1;
         }
@@ -48,11 +48,14 @@ public abstract class InputIndexOfNode extends Node {
     }
 
     @Specialization
-    public int indexOf(TruffleObject input, char c, int fromIndex, int maxIndex,
+    public int indexOf(TruffleObject input, int fromIndex, int maxIndex, char[] chars,
                     @Cached("create()") InputCharAtNode charAtNode) {
         for (int i = fromIndex; i < maxIndex; i++) {
-            if (charAtNode.execute(input, i) == c) {
-                return i;
+            char c = charAtNode.execute(input, i);
+            for (char v : chars) {
+                if (c == v) {
+                    return i;
+                }
             }
         }
         return -1;

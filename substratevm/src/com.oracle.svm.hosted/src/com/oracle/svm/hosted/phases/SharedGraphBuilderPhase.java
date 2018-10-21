@@ -45,6 +45,7 @@ import org.graalvm.compiler.word.WordTypes;
 
 import com.oracle.graal.pointsto.infrastructure.WrappedConstantPool;
 import com.oracle.graal.pointsto.meta.AnalysisMetaAccess;
+import com.oracle.graal.pointsto.util.AnalysisError;
 import com.oracle.svm.core.meta.SubstrateObjectConstant;
 import com.oracle.svm.core.util.UserError;
 import com.oracle.svm.core.util.UserError.UserException;
@@ -349,6 +350,33 @@ public abstract class SharedGraphBuilderPhase extends GraphBuilderPhase.Instance
             super.genReturn(returnVal, returnKind);
         }
 
+        @Override
+        protected void genLoadConstant(int cpi, int opcode) {
+            try {
+                super.genLoadConstant(cpi, opcode);
+            } catch (LinkageError | AnalysisError.TypeNotFoundError e) {
+                /*
+                 * If the constant is a Class object that references a missing class, e.g., declares
+                 * a constructor with a parameter of the missing class, the lookup can lead to
+                 * linkage errors.
+                 * 
+                 * During analysis parsing the lookup will lead to a NoClassDefFoundError when the
+                 * AnalysisType is initialized since we eagerly try to resolve all the referenced
+                 * classes, e.g., we call wrapped.getDeclaredConstructors() in the AnalysisType
+                 * constructor.
+                 * 
+                 * During compilation parsing, since the type represented by the constant was not
+                 * created during analysis, the lookup will lead to an
+                 * AnalysisError.TypeNotFoundError.
+                 */
+                if (NativeImageOptions.ReportUnsupportedElementsAtRuntime.getValue()) {
+                    handleUnresolvedLoadConstant(null);
+                    return;
+                }
+                throw e;
+            }
+        }
+
         private void checkWordType(ValueNode value, JavaType expectedType, String reason) {
             if (expectedType.getJavaKind() == JavaKind.Object) {
                 boolean isWordTypeExpected = getWordTypes().isWord(expectedType);
@@ -373,7 +401,7 @@ public abstract class SharedGraphBuilderPhase extends GraphBuilderPhase.Instance
         }
 
         @Override
-        protected boolean needsExplicitException() {
+        public boolean needsExplicitException() {
             return explicitExceptionEdges && !parsingIntrinsic();
         }
 

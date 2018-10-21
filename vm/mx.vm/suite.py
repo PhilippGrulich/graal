@@ -1,7 +1,9 @@
 suite = {
     "name": "vm",
-    "version": "1.0.0-rc2",
-    "mxversion": "5.164.0",
+    "version": "1.0.0-rc8",
+    "release" : True,
+    "groupId" : "org.graalvm",
+    "mxversion": "5.183.3",
     "defaultLicense" : "GPLv2-CPE",
     "imports": {
         "suites": [
@@ -17,9 +19,9 @@ suite = {
                 "name": "graal-nodejs",
                 "subdir": True,
                 "dynamic": True,
-                "version": "58692da68706b64f85744ab70fdb4520069836e1",
+                "version": "5ce380bada34f7841ca2210c1855ed48c9db2291",
                 "urls" : [
-                    {"url" : "https://github.com/oracle/js.git", "kind" : "git"},
+                    {"url" : "https://github.com/graalvm/graaljs.git", "kind" : "git"},
                     {"url": "https://curio.ssw.jku.at/nexus/content/repositories/snapshots", "kind": "binary"},
                 ]
             },
@@ -27,15 +29,15 @@ suite = {
                 "name": "graal-js",
                 "subdir": True,
                 "dynamic": True,
-                "version": "58692da68706b64f85744ab70fdb4520069836e1",
+                "version": "5ce380bada34f7841ca2210c1855ed48c9db2291",
                 "urls": [
-                    {"url": "https://github.com/oracle/js.git", "kind" : "git"},
+                    {"url": "https://github.com/graalvm/graaljs.git", "kind" : "git"},
                     {"url": "https://curio.ssw.jku.at/nexus/content/repositories/snapshots", "kind": "binary"},
                 ]
             },
             {
                 "name": "truffleruby",
-                "version": "0c60fae09de738cdaabff0393e27f5225034b468",
+                "version": "501266b89a75f756e94057abb86b684179460202",
                 "dynamic": True,
                 "urls": [
                     {"url": "https://github.com/oracle/truffleruby.git", "kind": "git"},
@@ -59,7 +61,7 @@ suite = {
             },
             {
                 "name": "fastr",
-                "version": "9316f50732af45c54dbbe515fc9ef997dc672e1b",
+                "version": "d9b993d32d2d10919c3adfd4a2c8a9f4114a2549",
                 "dynamic": True,
                 "urls": [
                     {"url": "https://github.com/oracle/fastr.git", "kind": "git"},
@@ -67,30 +69,11 @@ suite = {
                 ]
             },
             {
-                "name": "sulong",
-                "version": "cb47708b29c7f33dbf822cb6a5e75c07af877817",
-                "dynamic": True,
-                "urls": [
-                    {"url": "https://github.com/graalvm/sulong.git", "kind": "git"},
-                    {"url": "https://curio.ssw.jku.at/nexus/content/repositories/snapshots", "kind": "binary"},
-                ],
-                "os_arch": {
-                    "<others>": {
-                        "sparcv9": {
-                            "ignore": True
-                        },
-                        "<others>": {
-                            "ignore": False
-                        }
-                    }
-                }
-            },
-            {
                 "name": "graalpython",
-                "version": "c30c0c8c737ba2f5ba59eb4c2eb701778d98c753",
+                "version": "d96e3855a23f5bfa4eb8081b266bc891711540b9",
                 "dynamic": True,
                 "urls": [
-                    {"url": "https://github.com/oracle/graalpython.git", "kind": "git"},
+                    {"url": "https://github.com/graalvm/graalpython.git", "kind": "git"},
                     {"url": "https://curio.ssw.jku.at/nexus/content/repositories/snapshots", "kind": "binary"},
                 ]
             },
@@ -136,11 +119,13 @@ suite = {
             "distDependencies": [
                 "truffle:TRUFFLE_API",
             ],
+            "maven": False,
         },
         "INSTALLER": {
             "subDir": "src",
             "mainClass": "org.graalvm.component.installer.ComponentInstaller",
             "dependencies": ["org.graalvm.component.installer"],
+            "maven": False,
         },
         "INSTALLER_TESTS": {
             "subDir": "src",
@@ -152,6 +137,7 @@ suite = {
             "distDependencies": [
                 "INSTALLER",
             ],
+            "maven": False,
         },
         "INSTALLER_GRAALVM_SUPPORT": {
             "native": True,
@@ -162,6 +148,7 @@ suite = {
                 "bin/": "file:mx.vm/gu",
                 "components/polyglot/.registry" : "string:",
             },
+            "maven": False,
         },
         "VM_GRAALVM_SUPPORT": {
             "native": True,
@@ -170,6 +157,7 @@ suite = {
                 "LICENSE": "file:LICENSE_GRAALVM_CE",
                 "3rd_party_licenses.txt": "file:3rd_party_licenses_graalvm_ce.txt",
             },
+            "maven": False,
         },
     },
 }

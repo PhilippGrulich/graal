@@ -37,11 +37,11 @@ import org.graalvm.compiler.core.common.util.TypeConversion;
 import org.graalvm.compiler.options.Option;
 import org.graalvm.compiler.word.BarrieredAccess;
 import org.graalvm.compiler.word.Word;
+import org.graalvm.nativeimage.CurrentIsolate;
 import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.nativeimage.IsolateThread;
 import org.graalvm.nativeimage.Platform.AMD64;
 import org.graalvm.nativeimage.Platforms;
-import org.graalvm.nativeimage.c.function.CEntryPointContext;
 import org.graalvm.nativeimage.c.function.CodePointer;
 import org.graalvm.word.Pointer;
 import org.graalvm.word.PointerBase;
@@ -278,14 +278,14 @@ public final class Deoptimizer {
     private static void deoptimizeInRangeOperation(CodePointer fromIp, CodePointer toIp, boolean deoptAll) {
         VMOperation.guaranteeInProgress("Deoptimizer.deoptimizeInRangeOperation, but not in VMOperation.");
         /* Handle my own thread specially, because I do not have a JavaFrameAnchor. */
-        StackFrameVisitor currentThreadDeoptVisitor = getStackFrameVisitor((Pointer) fromIp, (Pointer) toIp, deoptAll, CEntryPointContext.getCurrentIsolateThread());
+        StackFrameVisitor currentThreadDeoptVisitor = getStackFrameVisitor((Pointer) fromIp, (Pointer) toIp, deoptAll, CurrentIsolate.getCurrentThread());
         Pointer sp = KnownIntrinsics.readCallerStackPointer();
         CodePointer ip = KnownIntrinsics.readReturnAddress();
         JavaStackWalker.walkCurrentThread(sp, ip, currentThreadDeoptVisitor);
         /* If I am multi-threaded, deoptimize this method on all the other stacks. */
         if (SubstrateOptions.MultiThreaded.getValue()) {
             for (IsolateThread vmThread = VMThreads.firstThread(); VMThreads.isNonNullThread(vmThread); vmThread = VMThreads.nextThread(vmThread)) {
-                if (vmThread == CEntryPointContext.getCurrentIsolateThread()) {
+                if (vmThread == CurrentIsolate.getCurrentThread()) {
                     continue;
                 }
                 StackFrameVisitor deoptVisitor = getStackFrameVisitor((Pointer) fromIp, (Pointer) toIp, deoptAll, vmThread);
@@ -322,7 +322,7 @@ public final class Deoptimizer {
             registerSpeculationFailure(deoptFrame.getSourceInstalledCode(), speculation);
             return;
         }
-        IsolateThread currentThread = CEntryPointContext.getCurrentIsolateThread();
+        IsolateThread currentThread = CurrentIsolate.getCurrentThread();
         VMOperation.enqueueBlockingSafepoint("DeoptimizeFrame", () -> Deoptimizer.deoptimizeFrameOperation(sourceSp, ignoreNonDeoptimizable, speculation, currentThread));
     }
 
@@ -674,18 +674,18 @@ public final class Deoptimizer {
         installDeoptimizedFrame(sourceSp, deoptimizedFrame);
 
         if (Options.TraceDeoptimization.getValue()) {
-            printDeoptimizedFrame(Log.log(), sourceSp, deoptimizedFrame, frameInfo);
+            printDeoptimizedFrame(Log.log(), sourceSp, deoptimizedFrame, frameInfo, false);
         }
-        logDeoptSourceFrameOperation(sourceSp, deoptimizedFrame);
+        logDeoptSourceFrameOperation(sourceSp, deoptimizedFrame, frameInfo);
 
         return deoptimizedFrame;
     }
 
-    private static void logDeoptSourceFrameOperation(Pointer sp, DeoptimizedFrame deoptimizedFrame) {
+    private static void logDeoptSourceFrameOperation(Pointer sp, DeoptimizedFrame deoptimizedFrame, FrameInfoQueryResult frameInfo) {
         StringBuilderLog log = new StringBuilderLog();
         PointerBase deoptimizedFrameAddress = deoptimizedFrame.getPin().addressOfObject();
         log.string("deoptSourceFrameOperation: DeoptimizedFrame at ").hex(deoptimizedFrameAddress).string(": ");
-        printDeoptimizedFrame(log, sp, deoptimizedFrame, null);
+        printDeoptimizedFrame(log, sp, deoptimizedFrame, frameInfo, true);
         recentDeoptimizationEvents.append(log.getResult().toCharArray());
     }
 
@@ -778,7 +778,13 @@ public final class Deoptimizer {
                             assert totalOffset >= targetContentSize;
                             result.values[idx] = DeoptimizedFrame.ConstantEntry.factory(totalOffset, con);
 
-                            int endOffset = totalOffset + ConfigurationValues.getObjectLayout().sizeInBytes(con.getJavaKind(), targetValue.isCompressedReference());
+                            int size;
+                            if (targetValue.getKind().isObject() && !targetValue.isCompressedReference()) {
+                                size = FrameAccess.uncompressedReferenceSize();
+                            } else {
+                                size = ConfigurationValues.getObjectLayout().sizeInBytes(con.getJavaKind());
+                            }
+                            int endOffset = totalOffset + size;
                             if (endOffset > newEndOfParams) {
                                 newEndOfParams = endOffset;
                             }
@@ -890,12 +896,12 @@ public final class Deoptimizer {
         if (LayoutEncoding.isArray(hub.getLayoutEncoding())) {
             /* For arrays, the second encoded value is the array length. */
             int length = readValue(encodings[1], sourceFrame).asInt();
-            obj = Array.newInstance(hub.getComponentHub().asClass(), length);
+            obj = Array.newInstance(DynamicHub.toClass(hub.getComponentHub()), length);
             curOffset = LayoutEncoding.getArrayBaseOffset(hub.getLayoutEncoding());
             curIdx = 2;
         } else {
             try {
-                obj = UnsafeAccess.UNSAFE.allocateInstance(hub.asClass());
+                obj = UnsafeAccess.UNSAFE.allocateInstance(DynamicHub.toClass(hub));
             } catch (InstantiationException ex) {
                 throw VMError.shouldNotReachHere(ex);
             }
@@ -908,15 +914,12 @@ public final class Deoptimizer {
             Heap.getHeap().getGC().collect("from Deoptimizer.materializeObject because of testGCinDeoptimizer");
         }
 
-        /* Objects must contain only compressed references when compression is enabled */
-        boolean useCompressedReferences = ReferenceAccess.singleton().haveCompressedReferences();
-
         while (curIdx < encodings.length) {
             ValueInfo value = encodings[curIdx];
             JavaKind kind = value.getKind();
             JavaConstant con = readValue(value, sourceFrame);
             writeValueInMaterializedObj(obj, curOffset, con);
-            curOffset = curOffset.add(objectLayout.sizeInBytes(kind, useCompressedReferences));
+            curOffset = curOffset.add(objectLayout.sizeInBytes(kind));
             curIdx++;
         }
 
@@ -992,7 +995,7 @@ public final class Deoptimizer {
         }
     }
 
-    private static void printDeoptimizedFrame(Log log, Pointer sp, DeoptimizedFrame deoptimizedFrame, FrameInfoQueryResult sourceFrameInfo) {
+    private static void printDeoptimizedFrame(Log log, Pointer sp, DeoptimizedFrame deoptimizedFrame, FrameInfoQueryResult sourceFrameInfo, boolean printOnlyTopFrames) {
         log.string("[Deoptimization of frame").newline();
 
         SubstrateInstalledCode installedCode = deoptimizedFrame.getSourceInstalledCode();
@@ -1005,6 +1008,7 @@ public final class Deoptimizer {
             log.string("    stack trace where execution continues:").newline();
             FrameInfoQueryResult sourceFrame = sourceFrameInfo;
             VirtualFrame targetFrame = deoptimizedFrame.getTopFrame();
+            int count = 0;
             while (sourceFrame != null) {
                 SharedMethod deoptMethod = sourceFrame.getDeoptMethod();
                 int bci = sourceFrame.getBci();
@@ -1020,10 +1024,15 @@ public final class Deoptimizer {
                 } else {
                     log.string("method at ").hex(sourceFrame.getDeoptMethodAddress()).string(" bci ").signed(bci);
                 }
-                log.newline();
+                log.string("  return address ").hex(targetFrame.returnAddress.returnAddress).newline();
 
-                if (Options.TraceDeoptimizationDetails.getValue()) {
+                if (printOnlyTopFrames || Options.TraceDeoptimizationDetails.getValue()) {
                     printVirtualFrame(log, targetFrame);
+                }
+
+                count++;
+                if (printOnlyTopFrames && count >= 4) {
+                    break;
                 }
 
                 sourceFrame = sourceFrame.getCaller();
@@ -1044,7 +1053,7 @@ public final class Deoptimizer {
         log.string("            bci: ").signed(frameInfo.getBci());
         log.string("  deoptMethodOffset: ").signed(frameInfo.getDeoptMethodOffset());
         log.string("  deoptMethod: ").hex(frameInfo.getDeoptMethodAddress());
-        log.string("  return address: ").hex(virtualFrame.returnAddress.returnAddress);
+        log.string("  return address: ").hex(virtualFrame.returnAddress.returnAddress).string("  offset: ").signed(virtualFrame.returnAddress.offset);
 
         for (int i = 0; i < frameInfo.getValueInfos().length; i++) {
             JavaConstant con = virtualFrame.getConstant(i);
@@ -1065,6 +1074,7 @@ public final class Deoptimizer {
                 } else {
                     log.string("  value: ").string(con.toValueString());
                 }
+                log.string("  offset: ").signed(virtualFrame.values[i].offset);
             }
         }
         log.newline();
@@ -1080,8 +1090,8 @@ public final class Deoptimizer {
         private static final int sizeofInt = JavaKind.Int.getByteCount();
         private static final int sizeofLong = JavaKind.Long.getByteCount();
         /** All references in deopt frames are compressed when compressed references are enabled. */
-        private final int sizeofCompressedReference = ConfigurationValues.getObjectLayout().getCompressedReferenceSize();
-        private final int sizeofUncompressedReference = ConfigurationValues.getObjectLayout().getReferenceSize();
+        private final int sizeofCompressedReference = ConfigurationValues.getObjectLayout().getReferenceSize();
+        private final int sizeofUncompressedReference = FrameAccess.uncompressedReferenceSize();
         /**
          * The offset of the within the array object. I do not have to scale the offsets.
          */

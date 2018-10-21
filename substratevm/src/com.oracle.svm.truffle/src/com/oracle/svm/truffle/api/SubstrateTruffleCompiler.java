@@ -57,29 +57,32 @@ import jdk.vm.ci.code.InstalledCode;
 
 public class SubstrateTruffleCompiler extends TruffleCompilerImpl {
 
+    private final String compilerConfigurationName;
+
     @Platforms(Platform.HOSTED_ONLY.class)
     public SubstrateTruffleCompiler(TruffleCompilerRuntime runtime, Plugins plugins, Suites suites, LIRSuites lirSuites, Backend backend, SnippetReflectionProvider snippetReflection) {
-        super(runtime, plugins, suites, lirSuites, backend, snippetReflection);
+        super(runtime, plugins, suites, lirSuites, backend, null, null, null, snippetReflection);
+        compilerConfigurationName = GraalConfiguration.instance().getCompilerConfigurationName();
     }
 
     @Platforms(Platform.HOSTED_ONLY.class)
     @Override
     protected PartialEvaluator createPartialEvaluator() {
-        return TruffleFeature.getSupport().createPartialEvaluator(providers, config, snippetReflection, backend.getTarget().arch, getInstrumentation());
+        return TruffleFeature.getSupport().createPartialEvaluator(lastTierProviders, config, snippetReflection, backend.getTarget().arch);
     }
 
     @Override
-    protected PhaseSuite<HighTierContext> createGraphBuilderSuite() {
+    public PhaseSuite<HighTierContext> createGraphBuilderSuite() {
         return null;
     }
 
     @Override
     public String getCompilerConfigurationName() {
-        return GraalConfiguration.instance().getCompilerConfigurationName();
+        return compilerConfigurationName;
     }
 
     @Override
-    protected CompilationResult createCompilationResult(String name, CompilationIdentifier compilationIdentifier) {
+    protected CompilationResult createCompilationResult(String name, CompilationIdentifier compilationIdentifier, CompilableTruffleAST compilable) {
         return new SubstrateCompilationResult(compilationIdentifier, name);
     }
 

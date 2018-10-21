@@ -143,6 +143,7 @@ import com.oracle.svm.hosted.substitute.DeletedMethod;
 import jdk.vm.ci.code.BytecodeFrame;
 import jdk.vm.ci.code.CodeCacheProvider;
 import jdk.vm.ci.code.DebugInfo;
+import jdk.vm.ci.code.Register;
 import jdk.vm.ci.code.site.Call;
 import jdk.vm.ci.code.site.Infopoint;
 import jdk.vm.ci.code.site.InfopointReason;
@@ -330,7 +331,8 @@ public class CompileQueue {
     @SuppressWarnings("try")
     public void finish(DebugContext debug) {
         try {
-            try (StopTimer t = new Timer("(parse)").start()) {
+            String imageName = universe.getBigBang().getHostVM().getImageName();
+            try (StopTimer t = new Timer(imageName, "(parse)").start()) {
                 parseAll();
             }
             // Checking @Uninterruptible annotations does not take long enough to justify a timer.
@@ -343,12 +345,12 @@ public class CompileQueue {
             MustNotSynchronizeAnnotationChecker.check(debug, universe.getMethods());
             beforeCompileAll(debug);
 
-            if (SubstrateOptions.AOTInline.getValue()) {
-                try (StopTimer ignored = new Timer("(inline)").start()) {
+            if (SubstrateOptions.AOTInline.getValue() && SubstrateOptions.AOTTrivialInline.getValue()) {
+                try (StopTimer ignored = new Timer(imageName, "(inline)").start()) {
                     inlineTrivialMethods(debug);
                 }
             }
-            try (StopTimer t = new Timer("(compile)").start()) {
+            try (StopTimer t = new Timer(imageName, "(compile)").start()) {
                 compileAll();
             }
         } catch (InterruptedException ie) {
@@ -867,8 +869,8 @@ public class CompileQueue {
     class HostedCompilationResultBuilderFactory implements CompilationResultBuilderFactory {
         @Override
         public CompilationResultBuilder createBuilder(CodeCacheProvider codeCache, ForeignCallsProvider foreignCalls, FrameMap frameMap, Assembler asm, DataBuilder dataBuilder,
-                        FrameContext frameContext, OptionValues options, DebugContext debug, CompilationResult compilationResult) {
-            return new CompilationResultBuilder(codeCache, foreignCalls, frameMap, asm, dataBuilder, frameContext, options, debug, compilationResult, EconomicMap.wrapMap(dataCache));
+                        FrameContext frameContext, OptionValues options, DebugContext debug, CompilationResult compilationResult, Register nullRegister) {
+            return new CompilationResultBuilder(codeCache, foreignCalls, frameMap, asm, dataBuilder, frameContext, options, debug, compilationResult, nullRegister, EconomicMap.wrapMap(dataCache));
         }
     }
 
@@ -1033,6 +1035,11 @@ public class CompileQueue {
      * feature for testing. Note that usually all image compiled methods cannot deoptimize.
      */
     protected boolean canDeoptForTesting(HostedMethod method) {
+        if (method.getName().equals("<clinit>")) {
+            /* Cannot deoptimize into static initializers. */
+            return false;
+        }
+
         if (method.getAnnotation(DeoptTest.class) != null) {
             return true;
         }

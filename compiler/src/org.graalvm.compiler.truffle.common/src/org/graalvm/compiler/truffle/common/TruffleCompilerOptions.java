@@ -128,6 +128,9 @@ public class TruffleCompilerOptions {
     @Option(help = "Restrict compilation to comma-separated list of includes (or excludes prefixed with tilde)", type = OptionType.Debug)
     public static final OptionKey<String> TruffleCompileOnly = new OptionKey<>(null);
 
+    @Option(help = "Enable or disable truffle compilation.", type = OptionType.Debug)
+    public static final OptionKey<Boolean> TruffleCompilation = new OptionKey<>(true);
+
     @Option(help = "Compile immediately to test truffle compiler", type = OptionType.Debug)
     public static final OptionKey<Boolean> TruffleCompileImmediately = new OptionKey<>(false);
 
@@ -140,14 +143,11 @@ public class TruffleCompilerOptions {
     @Option(help = "Compile call target when call count exceeds this threshold", type = OptionType.User)
     public static final OptionKey<Integer> TruffleCompilationThreshold = new OptionKey<>(1000);
 
-    /**
-     * deprecated use {@code PolyglotCompilerOptions.QueueTimeThreshold} instead.
-     */
-    @Option(help = "Defines the maximum timespan in milliseconds that is required for a call target to be queued for compilation.", type = OptionType.User)
-    public static final OptionKey<Integer> TruffleTimeThreshold = new OptionKey<>(50000);
-
     @Option(help = "Minimum number of calls before a call target is compiled", type = OptionType.Expert)
     public static final OptionKey<Integer> TruffleMinInvokeThreshold = new OptionKey<>(3);
+
+    @Option(help = "Minimum number of calls before a call target is compiled in the first tier.", type = OptionType.Expert)
+    public static final OptionKey<Integer> TruffleFirstTierMinInvokeThreshold = new OptionKey<>(1);
 
     @Option(help = "Delay compilation after an invalidation to allow for reprofiling", type = OptionType.Expert)
     public static final OptionKey<Integer> TruffleInvalidationReprofileCount = new OptionKey<>(3);
@@ -195,7 +195,7 @@ public class TruffleCompilerOptions {
     public static final OptionKey<Boolean> TruffleExperimentalSplittingDumpDecisions = new OptionKey<>(false);
 
     @Option(help = "Should forced splits be allowed (when using experimental splitting)", type = OptionType.Expert)
-    public static final OptionKey<Boolean> TruffleExperimentalSplittingAllowForcedSplits = new OptionKey<>(false);
+    public static final OptionKey<Boolean> TruffleExperimentalSplittingAllowForcedSplits = new OptionKey<>(true);
 
     @Option(help = "Enable asynchronous truffle compilation in background thread", type = OptionType.Expert)
     public static final OptionKey<Boolean> TruffleBackgroundCompilation = new OptionKey<>(true);
@@ -228,7 +228,7 @@ public class TruffleCompilerOptions {
     @Option(help = "Print all polymorphic and generic nodes after each compilation", type = OptionType.Debug)
     public static final OptionKey<Boolean> TraceTruffleCompilationPolymorphism = new OptionKey<>(false);
 
-    @Option(help = "Print all polymorphic and generic nodes after each compilation", type = OptionType.Debug)
+    @Option(help = "Print the entire AST after each compilation", type = OptionType.Debug)
     public static final OptionKey<Boolean> TraceTruffleCompilationAST = new OptionKey<>(false);
 
     @Option(help = "Print the inlined call tree for each compiled method", type = OptionType.Debug)
@@ -309,5 +309,7 @@ public class TruffleCompilerOptions {
     @Option(help = "Maximum number of instrumentation counters available.")
     public static final OptionKey<Integer> TruffleInstrumentationTableSize = new OptionKey<>(10000);
 
+    @Option(help = "Whether to use multiple compilation tiers by default.")
+    public static final OptionKey<Boolean> TruffleMultiTier = new OptionKey<>(false);
     // @formatter:on
 }

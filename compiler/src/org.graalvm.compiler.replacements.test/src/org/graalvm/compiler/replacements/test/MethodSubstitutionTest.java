@@ -35,6 +35,7 @@ import org.graalvm.compiler.nodes.StructuredGraph;
 import org.graalvm.compiler.nodes.StructuredGraph.AllowAssumptions;
 import org.graalvm.compiler.nodes.java.MethodCallTargetNode;
 import org.graalvm.compiler.nodes.spi.LoweringTool;
+import org.graalvm.compiler.phases.BasePhase;
 import org.graalvm.compiler.phases.common.CanonicalizerPhase;
 import org.graalvm.compiler.phases.common.DeadCodeEliminationPhase;
 import org.graalvm.compiler.phases.common.LoweringPhase;
@@ -57,14 +58,24 @@ public abstract class MethodSubstitutionTest extends GraalCompilerTest {
         return testGraph(snippet, null);
     }
 
+    @SuppressWarnings("unused")
+    public BasePhase<HighTierContext> createInliningPhase(StructuredGraph graph) {
+        return new InliningPhase(new CanonicalizerPhase());
+    }
+
     @SuppressWarnings("try")
     protected StructuredGraph testGraph(final String snippet, String name) {
+        return testGraph(getResolvedJavaMethod(snippet), name);
+    }
+
+    @SuppressWarnings("try")
+    protected StructuredGraph testGraph(final ResolvedJavaMethod method, String name) {
         DebugContext debug = getDebugContext();
-        try (DebugContext.Scope s = debug.scope("MethodSubstitutionTest", getResolvedJavaMethod(snippet))) {
-            StructuredGraph graph = parseEager(snippet, AllowAssumptions.YES, debug);
+        try (DebugContext.Scope s = debug.scope("MethodSubstitutionTest", method)) {
+            StructuredGraph graph = parseEager(method, AllowAssumptions.YES, debug);
             HighTierContext context = getDefaultHighTierContext();
             debug.dump(DebugContext.BASIC_LEVEL, graph, "Graph");
-            new InliningPhase(new CanonicalizerPhase()).apply(graph, context);
+            createInliningPhase(graph).apply(graph, context);
             debug.dump(DebugContext.BASIC_LEVEL, graph, "Graph");
             new CanonicalizerPhase().apply(graph, context);
             new DeadCodeEliminationPhase().apply(graph);
