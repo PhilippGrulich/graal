@@ -64,9 +64,13 @@ public class ArrayLengthNode extends FixedWithNextNode implements Canonicalizabl
         return array;
     }
 
-    public ArrayLengthNode(ValueNode array) {
-        super(TYPE, StampFactory.positiveInt());
+    public ArrayLengthNode(NodeClass<? extends ArrayLengthNode> type, ValueNode array) {
+        super(type, StampFactory.positiveInt());
         this.array = array;
+    }
+
+    public ArrayLengthNode(ValueNode array) {
+        this(TYPE, array);
     }
 
     public static ValueNode create(ValueNode forValue, ConstantReflectionProvider constantReflection) {
